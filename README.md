@@ -35,10 +35,10 @@ python -m src.generate_charts
 
 The local sample emails and evaluation outputs are retained under `data/` for reproducible analysis.
 
-![Extraction accuracy](assets/charts/01_extraction_accuracy.png)
+![Operational triage and confidence routing flow](assets/charts/01_extraction_accuracy.png)
 
-Field-level accuracy separates extraction tasks that can support straight-through processing from fields that need a review gate. This provides a governance baseline for confidence thresholds, model-version comparisons and controlled release decisions.
+The routing-flow chart shows the production volume split from ingestion and schema validation through high-confidence auto-routing, human fallback and quarantine, including the estimated analyst hours saved.
 
-![Edge-case error rates](assets/charts/02_edge_case_error_rates.png)
+![Field-level precision versus confidence threshold calibration](assets/charts/02_edge_case_error_rates.png)
 
-Edge-case error rates show where the Model Governance & Fallback design must intervene. Ambiguous or low-confidence messages can be routed to human review, preserving operational control while allowing high-confidence cases to flow automatically.
+The calibration chart makes the precision-versus-coverage trade-off explicit and marks the 0.85 production operating threshold used for safe automation.
