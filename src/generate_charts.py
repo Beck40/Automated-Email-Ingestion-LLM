@@ -1,68 +1,115 @@
-"""Export executive operational triage and confidence-routing visuals."""
+"""Generate charts from the repository's real evaluation CSV outputs."""
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import seaborn as sns
 
 
-def set_corporate_style():
+def set_corporate_style() -> None:
     sns.set_theme(style="whitegrid", rc={
-        "axes.facecolor": "#F8F9FA", "figure.facecolor": "#FFFFFF",
-        "axes.edgecolor": "#E0E0E0", "grid.color": "#EBEBEB",
-        "font.family": "sans-serif", "font.sans-serif": ["Segoe UI", "Helvetica Neue", "Arial"],
-        "axes.titlesize": 13, "axes.titleweight": "bold", "axes.titlelocation": "left",
-        "axes.labelsize": 10, "axes.labelweight": "bold", "axes.labelcolor": "#495057",
-        "xtick.color": "#6C757D", "ytick.color": "#6C757D", "text.color": "#212529"
+        "axes.facecolor": "#F8F9FA",
+        "figure.facecolor": "#FFFFFF",
+        "axes.edgecolor": "#E0E0E0",
+        "grid.color": "#EBEBEB",
+        "font.family": "sans-serif",
+        "axes.titlesize": 13,
+        "axes.titleweight": "bold",
+        "axes.labelsize": 10,
+        "text.color": "#212529",
     })
-    sns.set_palette(["#2B5B84", "#E76F51", "#2A9D8F", "#E9C46A", "#F4A261"])
 
 
-def generate(output_dir="assets/charts", metrics="data/metrics.csv"):
+def generate(
+    output_dir: str | Path = "assets/charts",
+    data_dir: str | Path = "data",
+) -> None:
     set_corporate_style()
     out = Path(output_dir)
+    data = Path(data_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    labels = ["High-confidence auto-routed\n≥ 0.85", "Human-in-the-loop fallback\n< 0.85", "Quarantined / malformed"]
-    values = [78, 18, 4]
-    fig, ax = plt.subplots(figsize=(10, 4.8))
-    left = 0
-    for label, value, color in zip(labels, values, ["#2B5B84", "#E9C46A", "#E76F51"]):
-        ax.barh(["100% ingested email volume"], [value], left=left, color=color, label=label, height=0.42)
-        ax.text(left + value / 2, 0, f"{value}%", ha="center", va="center", fontweight="bold",
-                color="white" if color != "#E9C46A" else "#212529")
-        left += value
+    metrics_path = data / "evaluation_outputs" / "evaluation_metrics.csv"
+    row_path = data / "evaluation_outputs" / "evaluation_row_level.csv"
+    metrics = pd.read_csv(metrics_path)
+    rows = pd.read_csv(row_path)
+
+    labels = {
+        "company_name": "Company Name",
+        "revenue": "Revenue",
+        "industry": "Industry",
+        "countries": "Countries",
+        "requested_coverages": "Coverages",
+        "record": "Malformed",
+    }
+    wanted = [
+        ("company_name", "Exact match accuracy (strict)"),
+        ("revenue", "Exact match accuracy (strict)"),
+        ("industry", "Semantic match accuracy"),
+        ("countries", "Macro F1"),
+        ("requested_coverages", "Macro F1"),
+        ("record", "Malformed / failed rate"),
+    ]
+    values = []
+    display_labels = []
+    for field, metric in wanted:
+        match = metrics[(metrics["field"] == field) & (metrics["metric"] == metric)]
+        score = float(match["score"].iloc[0]) if not match.empty else 0.0
+        values.append(score * 100)
+        display_labels.append(labels[field])
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    colors = ["#2B5B84", "#336699", "#2A9D8F", "#6C5CE7", "#E76F51", "#C1121F"]
+    bars = ax.barh(display_labels[::-1], values[::-1], color=colors[::-1])
     ax.set_xlim(0, 100)
-    ax.set_xlabel("Share of total ingested emails")
-    ax.legend(ncol=3, loc="upper center", bbox_to_anchor=(0.5, -0.22), frameon=False)
-    ax.set(title="Operational triage and confidence routing flow")
-    plt.suptitle("Email ingestion control tower | 100% ingested → schema validated | "
-                 "126 manual hours saved / month",
-                 x=0.12, ha="left", y=0.98, fontsize=10, color="#6C757D")
-    sns.despine(left=True, bottom=False)
-    fig.tight_layout(rect=(0, 0.08, 1, 0.93))
-    fig.savefig(out / "01_extraction_accuracy.png", dpi=300, bbox_inches="tight")
+    ax.set_xlabel("Score (%)")
+    ax.set_title("Field Evaluation Metrics | 50-Submission Ground Truth")
+    for bar, value in zip(bars, values[::-1]):
+        ax.text(value + 1, bar.get_y() + bar.get_height() / 2, f"{value:.0f}%",
+                va="center", fontweight="bold")
+    sns.despine(left=True)
+    fig.tight_layout()
+    fig.savefig(out / "01_field_evaluation_metrics.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    thresholds = np.linspace(0.50, 0.99, 50)
-    precision = 0.79 + 0.19 / (1 + np.exp(-15 * (thresholds - 0.73)))
-    coverage = 0.98 - 0.72 * ((thresholds - 0.50) / 0.49) ** 1.35
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    ax.plot(thresholds, precision * 100, color="#2B5B84", linewidth=2.8, label="Extraction Precision")
-    ax.plot(thresholds, coverage * 100, color="#E76F51", linewidth=2.8, label="Auto-Triage Coverage")
-    ax.axvline(0.85, color="#C1121F", linestyle="--", linewidth=1.5)
-    ax.text(0.855, 96, "Production Operating\nThreshold", color="#C1121F", fontsize=9,
-            va="top", fontweight="bold")
-    ax.set(title="Field-level precision vs. confidence threshold calibration",
-           xlabel="LLM confidence threshold", ylabel="Percentage of eligible records", ylim=(0, 105))
-    ax.legend(frameon=False, loc="center right")
-    plt.suptitle("Quality and throughput trade-off | calibrated for safe production automation",
-                 x=0.12, ha="left", y=0.98, fontsize=10, color="#6C757D")
-    sns.despine(left=True, bottom=False)
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
-    fig.savefig(out / "02_edge_case_error_rates.png", dpi=300, bbox_inches="tight")
+    confidence_counts = rows["confidence"].fillna("Unknown").value_counts().reindex(
+        ["High", "Medium", "Low"], fill_value=0
+    )
+    review_required = int(pd.to_numeric(rows["review_required"], errors="coerce").fillna(False).sum()) if "review_required" in rows else 0
+    malformed = int(pd.to_numeric(rows["malformed_or_failed"], errors="coerce").fillna(False).sum()) if "malformed_or_failed" in rows else 0
+    discrepancy_count = len(pd.read_csv(data / "evaluation_outputs" / "evaluation_errors.csv")) if (data / "evaluation_outputs" / "evaluation_errors.csv").exists() else 0
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.5, 5.5), gridspec_kw={"width_ratios": [1.1, 1]})
+    ax1.bar(confidence_counts.index, confidence_counts.values,
+            color=["#2A9D8F", "#E9C46A", "#E76F51"])
+    ax1.set_title("Confidence Tier Distribution")
+    ax1.set_ylabel("Submissions")
+    ax1.set_ylim(0, max(30, int(confidence_counts.max()) + 4))
+    for index, value in enumerate(confidence_counts.values):
+        ax1.text(index, value + 0.5, str(int(value)), ha="center", fontweight="bold")
+
+    error_labels = ["Review required", "Field discrepancies", "Malformed"]
+    error_values = [review_required, discrepancy_count, malformed]
+    bars = ax2.bar(error_labels, error_values,
+                   color=["#5B8FF9", "#E76F51", "#C1121F"])
+    ax2.set_title("Review and Error Breakdown")
+    ax2.set_ylabel("Submissions")
+    ax2.tick_params(axis="x", rotation=20)
+    ax2.set_ylim(0, max(35, max(error_values) + 5))
+    for bar, value in zip(bars, error_values):
+        ax2.text(bar.get_x() + bar.get_width() / 2, value + 0.5, str(value),
+                 ha="center", fontweight="bold")
+    fig.suptitle("Confidence and Discrepancy Summary | 50-Submission Evaluation",
+                 fontsize=14, fontweight="bold")
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    fig.savefig(out / "02_confidence_and_error_breakdown.png",
+                dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+    for old_name in ("01_extraction_accuracy.png", "02_edge_case_error_rates.png"):
+        old_path = out / old_name
+        if old_path.exists():
+            old_path.unlink()
 
 
 if __name__ == "__main__":
