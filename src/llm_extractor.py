@@ -10,7 +10,7 @@ from .config import get_settings
 CONFIDENCE_RANK = {"Low": 0, "Medium": 1, "High": 2}
 
 
-def apply_confidence_rules(data: dict[str, Any], source_text: str) -> dict[str, Any]:
+def apply_confidence_rules(record: dict[str, Any], source_text: str) -> dict[str, Any]:
     text = source_text.casefold()
     low_reasons: list[str] = []
     medium_reasons: list[str] = []
@@ -27,42 +27,36 @@ def apply_confidence_rules(data: dict[str, Any], source_text: str) -> dict[str, 
             and ("operating" in text or "territor" in text)):
         medium_reasons.append("Address and operating-territory countries may differ.")
 
-    model_reasons = data.get("review_reasons", [])
+    model_reasons = record.get("review_reasons", [])
     if not isinstance(model_reasons, list):
         model_reasons = []
     reasons = list(dict.fromkeys(
         [str(reason) for reason in model_reasons] + low_reasons + medium_reasons
     ))
-    data["review_reasons"] = reasons
+    record["review_reasons"] = reasons
 
-    llm_confidence = str(data.get("confidence", "Low")).title()
+    llm_confidence = str(record.get("confidence", "Low")).title()
     if llm_confidence not in CONFIDENCE_RANK:
         llm_confidence = "Low"
     rule_confidence = "Low" if low_reasons else "Medium" if medium_reasons else "High"
 
-    final_confidence = min(
-        (llm_confidence, rule_confidence),
-        key=lambda value: CONFIDENCE_RANK[value],
-    )
+    final_confidence = min((llm_confidence, rule_confidence), key=lambda level: CONFIDENCE_RANK[level])
 
     if reasons:
-        final_confidence = min(
-            (final_confidence, "Medium"),
-            key=lambda value: CONFIDENCE_RANK[value],
-        )
-        data["review_required"] = True
+        final_confidence = min((final_confidence, "Medium"), key=lambda level: CONFIDENCE_RANK[level])
+        record["review_required"] = True
     else:
-        data["review_required"] = final_confidence != "High"
+        record["review_required"] = final_confidence != "High"
 
-    data["confidence"] = final_confidence
-    data.setdefault("submission_id", None)
-    data.setdefault("company_name", None)
-    data.setdefault("revenue", None)
-    data.setdefault("countries", [])
-    data.setdefault("industry", None)
-    data.setdefault("requested_coverages", [])
-    data.setdefault("explanation", "")
-    return data
+    record["confidence"] = final_confidence
+    record.setdefault("submission_id", None)
+    record.setdefault("company_name", None)
+    record.setdefault("revenue", None)
+    record.setdefault("countries", [])
+    record.setdefault("industry", None)
+    record.setdefault("requested_coverages", [])
+    record.setdefault("explanation", "")
+    return record
 
 
 EXTRACTION_PROMPT = """Extract the underwriting fields from the email and attachments. Return only valid JSON.
@@ -77,11 +71,7 @@ Return exactly this JSON schema:
 "review_required":true,"review_reasons":[],"explanation":"brief evidence-based explanation"}"""
 
 
-def extract_submission_data(
-    submission_id: str,
-    source_text: str,
-    client: Any | None = None,
-) -> dict[str, Any]:
+def extract_submission_data(submission_id: str, source_text: str, client: Any | None = None) -> dict[str, Any]:
     settings = get_settings()
     if client is None:
         if settings.groq_api_key is None:
@@ -99,11 +89,11 @@ def extract_submission_data(
         )
         raw_output = response.choices[0].message.content.strip()
         raw_output = raw_output.replace("```json", "").replace("```", "").strip()
-        data = json.loads(raw_output)
-        if not isinstance(data, dict):
+        record = json.loads(raw_output)
+        if not isinstance(record, dict):
             raise ValueError("LLM output is not a JSON object")
-        data["submission_id"] = submission_id
-        return apply_confidence_rules(data, source_text)
+        record["submission_id"] = submission_id
+        return apply_confidence_rules(record, source_text)
     except Exception as error:
         return {
             "submission_id": submission_id,

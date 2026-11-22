@@ -27,24 +27,21 @@ def test_group_submission_files_by_prefix(tmp_path):
 
 
 def test_confidence_rules_only_downgrade():
-    data = {"confidence": "High", "review_reasons": [], "review_required": False}
-    result = apply_confidence_rules(
-        data,
-        "The estimated revenue differs from the audited actual revenue.",
-    )
+    record = {"confidence": "High", "review_reasons": [], "review_required": False}
+    result = apply_confidence_rules(record, "The estimated revenue differs from the audited actual revenue.")
     assert result["confidence"] == "Low"
     assert result["review_required"] is True
 
 
 def test_e047_conflict_reason_caps_high_and_forces_review():
-    data = {
+    record = {
         "confidence": "High",
         "review_reasons": [
             "Conflicting company name across the email and change-of-name certificate."
         ],
         "review_required": False,
     }
-    result = apply_confidence_rules(data, "The change of name certificate differs.")
+    result = apply_confidence_rules(record, "The change of name certificate differs.")
     assert result["confidence"] == "Medium"
     assert result["review_required"] is True
 
@@ -55,9 +52,7 @@ class MockCompletions:
 
     def create(self, **kwargs):
         message = SimpleNamespace(content=self.content)
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=message)]
-        )
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
 class MockClient:
@@ -93,12 +88,9 @@ def test_extract_submission_data_malformed_output_fallback():
 
 
 def test_exact_and_semantic_evaluation():
-    truth = [{"company_name": "Example Ltd", "revenue": 100}]
-    pred = [{"company_name": "Example Ltd", "revenue": 100}]
-    assert exact_match_rate(truth, pred, ["company_name", "revenue"]) == {
-        "company_name": 1.0,
-        "revenue": 1.0,
-    }
+    truth_rows = [{"company_name": "Example Ltd", "revenue": 100}]
+    pred_rows = [{"company_name": "Example Ltd", "revenue": 100}]
+    assert exact_match_rate(truth_rows, pred_rows, ["company_name", "revenue"]) == {"company_name": 1.0, "revenue": 1.0}
     assert semantic_match("Retail", "Retail Services")
 
 
@@ -133,7 +125,5 @@ def test_evaluate_predictions_and_malformed_isolation(tmp_path):
     metrics, errors = evaluate_predictions(truth_path, pred_path, tmp_path / "out")
     assert not metrics.empty
     assert len(errors) == 1
-    malformed = metrics.loc[
-        metrics["metric"] == "Malformed / failed rate", "score"
-    ].iloc[0]
+    malformed = metrics.loc[metrics["metric"] == "Malformed / failed rate", "score"].iloc[0]
     assert malformed == 0.0

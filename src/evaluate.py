@@ -39,8 +39,8 @@ def exact_match_rate(expected: Iterable[Mapping[str, Any]], predicted: Iterable[
         return {field: 0.0 for field in fields}
     return {
         field: sum(
-            (a.get(field) == b.get(field))
-            for a, b in zip(expected_list, predicted_list)
+            (truth_row.get(field) == pred_row.get(field))
+            for truth_row, pred_row in zip(expected_list, predicted_list)
         ) / total
         for field in fields
     }
@@ -76,29 +76,17 @@ def malformed_or_failed(row: Mapping[str, Any]) -> bool:
     return False
 
 
-def evaluate_predictions(
-    ground_truth_path: str | Path,
-    predictions_path: str | Path,
-    output_dir: str | Path,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+def evaluate_predictions(ground_truth_path: str | Path, predictions_path: str | Path, output_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     ground_truth = pd.read_csv(ground_truth_path)
     predictions = pd.read_csv(predictions_path)
 
-    truth = ground_truth.rename(columns={
-        "company_name": "company_name_truth",
-        "revenue": "revenue_truth",
-        "countries": "countries_truth",
-        "industry": "industry_truth",
-        "requested_coverages": "requested_coverages_truth",
-    })
-    pred = predictions.rename(columns={
-        "company_name": "company_name_pred",
-        "revenue": "revenue_pred",
-        "countries": "countries_pred",
-        "industry": "industry_pred",
-        "requested_coverages": "requested_coverages_pred",
-    })
-    comparison = truth.merge(pred, on="submission_id", how="left", indicator=True)
+    comparison = ground_truth.merge(
+        predictions,
+        on="submission_id",
+        how="left",
+        suffixes=("_truth", "_pred"),
+        indicator=True,
+    )
     comparison["record_present"] = comparison["_merge"] == "both"
 
     for field in ("countries", "requested_coverages"):
@@ -108,12 +96,8 @@ def evaluate_predictions(
             axis=1,
             result_type="expand",
         )
-    comparison["company_name_match"] = (
-        comparison["company_name_pred"] == comparison["company_name_truth"]
-    )
-    comparison["revenue_match"] = (
-        comparison["revenue_pred"] == comparison["revenue_truth"]
-    )
+    comparison["company_name_match"] = comparison["company_name_pred"] == comparison["company_name_truth"]
+    comparison["revenue_match"] = comparison["revenue_pred"] == comparison["revenue_truth"]
     comparison["industry_match"] = comparison.apply(
         lambda row: semantic_match(row["industry_pred"], row["industry_truth"]),
         axis=1,
